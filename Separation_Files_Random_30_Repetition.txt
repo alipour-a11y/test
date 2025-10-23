@@ -1,0 +1,42 @@
+import pandas as pd
+import numpy as np
+import os
+from sklearn.model_selection import train_test_split
+
+# ------------------------
+# تنظیمات اولیه
+# ------------------------
+TV_Test_Ration = 90  # درصد داده برای Train/Validation
+input_path = r"C:\Users\Pourali\Desktop\corn\Data\Data-Corn_X_Moisture (%).xlsx"
+
+# مسیر پوشه خروجی‌ها
+output_base = r"C:\Users\Pourali\Desktop\corn\Data\Split_Files"
+
+# ایجاد پوشه خروجی‌ها در صورت عدم وجود
+os.makedirs(os.path.join(output_base, "TV"), exist_ok=True)
+os.makedirs(os.path.join(output_base, "Test"), exist_ok=True)
+
+# خواندن داده از فایل اکسل
+data = pd.read_excel(input_path)
+
+# ------------------------
+# تقسیم تصادفی داده‌ها در 30 تکرار
+# ------------------------
+for i in range(1, 31):
+    # نسبت تست
+    test_size = (100 - TV_Test_Ration) / 100.0
+
+    # تقسیم تصادفی داده‌ها (بدون seed برای تصادف کامل)
+    train_val, test = train_test_split(data, test_size=test_size, shuffle=True, random_state=None)
+
+    # مسیرهای ذخیره
+    tv_path = os.path.join(output_base, "TV", f"TV_Set_{i}.xlsx")
+    test_path = os.path.join(output_base, "Test", f"Test_Set_{i}.xlsx")
+
+    # ذخیره فایل‌ها
+    train_val.to_excel(tv_path, index=False)
+    test.to_excel(test_path, index=False)
+
+    print(f"✅ Split {i} done: {len(train_val)} TV / {len(test)} Test")
+
+print("\n🎉 تمام 30 تقسیم‌بندی انجام شد و فایل‌ها ذخیره شدند.")
