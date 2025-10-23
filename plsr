@@ -1,0 +1,113 @@
+
+import os
+import joblib
+import numpy as np
+import pandas as pd
+from sklearn.cross_decomposition import PLSRegression
+from sklearn.model_selection import LeaveOneOut
+from sklearn.metrics import mean_squared_error, r2_score
+import warnings
+
+warnings.filterwarnings("ignore")
+
+# ===== مسیرها =====
+data_folder = r"C:\Users\Pourali\Desktop\corn\Data\Separation_Files\TV"
+save_folder = r"C:\Users\Pourali\Desktop\corn\model\LOO"
+summary_filename = "Model_Performance_All.xlsx"
+max_components_limit = 15
+# ===================
+
+# ایجاد مسیر ذخیره مدل‌ها اگر وجود ندارد
+os.makedirs(save_folder, exist_ok=True)
+
+# لیست فایل‌های اکسل در پوشه داده
+excel_files = [f for f in os.listdir(data_folder) if f.lower().endswith(".xlsx")]
+
+# لیست برای ذخیره نتایج همه مدل‌ها
+results = []
+
+# --- پردازش هر فایل اکسل ---
+for file_name in excel_files:
+    file_path = os.path.join(data_folder, file_name)
+    try:
+        # خواندن داده
+        df = pd.read_excel(file_path, header=0, index_col=0)
+        y = df.iloc[:, -1].values.astype(float)
+        X = df.iloc[:, :-1].values.astype(float)
+        n_samples, n_features = X.shape
+
+        if n_samples < 3:
+            print(f"⛔ Skipped (too few samples): {file_name}")
+            continue
+
+        max_components = min(max_components_limit, n_samples - 1, n_features)
+        loo = LeaveOneOut()
+        rmsecv_list = []
+        y_loo_preds_by_comp = {}
+
+        # محاسبه RMSECV برای هر مؤلفه
+        for n_comp in range(1, max_components + 1):
+            y_pred_loo = np.zeros_like(y, dtype=float)
+            for train_idx, test_idx in loo.split(X):
+                X_train, X_test = X[train_idx], X[test_idx]
+                y_train = y[train_idx]
+                pls = PLSRegression(n_components=n_comp, scale=False)
+                pls.fit(X_train, y_train)
+                y_pred = pls.predict(X_test)
+                y_pred_loo[test_idx] = y_pred.ravel()
+            rmsecv = np.sqrt(mean_squared_error(y, y_pred_loo))
+            rmsecv_list.append(rmsecv)
+            y_loo_preds_by_comp[n_comp] = y_pred_loo
+
+        # انتخاب بهترین مؤلفه
+        best_idx = int(np.argmin(rmsecv_list))
+        best_n_comp = best_idx + 1
+
+        # مدل نهایی
+        pls_final = PLSRegression(n_components=best_n_comp, scale=False)
+        pls_final.fit(X, y)
+
+        # شاخص‌ها
+        y_cal_pred = pls_final.predict(X).ravel()
+        RMSEc = np.sqrt(mean_squared_error(y, y_cal_pred))
+        R2_cal = r2_score(y, y_cal_pred)
+        y_loo_pred_best = y_loo_preds_by_comp[best_n_comp].ravel()
+        RMSEv = np.sqrt(mean_squared_error(y, y_loo_pred_best))
+        R2_val = r2_score(y, y_loo_pred_best)
+        RPDv = np.std(y, ddof=1) / RMSEv if RMSEv != 0 else np.inf
+
+        # ذخیره مدل
+        model_name = os.path.splitext(file_name)[0]
+        model_path = os.path.join(save_folder, f"{model_name}_model.joblib")
+        joblib.dump(pls_final, model_path)
+
+        # ذخیره نتایج در لیست
+        results.append({
+            "Model Name": model_name,
+            "R2_calibration": R2_cal,
+            "RMSEc": RMSEc,
+            "R2_validation": R2_val,
+            "RMSEv": RMSEv,
+            "RPDv": RPDv
+        })
+
+        # چاپ خلاصه برای هر فایل
+        print(f"""--- Model Performance ({model_name}) ---
+R2_calibration = {R2_cal:.6f}
+RMSEc          = {RMSEc:.6f}
+R2_validation  = {R2_val:.6f}
+RMSEv          = {RMSEv:.6f}
+RPDv           = {RPDv:.6f}
+✅ Model saved.
+""")
+
+    except Exception as e:
+        print(f"⚠️ Error processing {file_name}: {e}")
+
+# --- ذخیره فایل نهایی اکسل ---
+if results:
+    df_results = pd.DataFrame(results)
+    df_results.to_excel(os.path.join(save_folder, summary_filename), index=False)
+    print(f"✅ All model performances saved to '{summary_filename}'")
+else:
+    print("⚠️ No valid Excel files found or processed.")
